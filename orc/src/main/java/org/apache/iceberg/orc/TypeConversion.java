@@ -48,6 +48,7 @@ public class TypeConversion {
         result = TypeDescription.createBoolean();
         break;
       case INTEGER:
+      case TIME:
         result = TypeDescription.createInt();
         break;
       case LONG:
@@ -62,9 +63,6 @@ public class TypeConversion {
       case DATE:
         result = TypeDescription.createDate();
         break;
-      case TIME:
-        result = TypeDescription.createInt();
-        break;
       case TIMESTAMP:
         result = TypeDescription.createTimestamp();
         break;
@@ -72,11 +70,7 @@ public class TypeConversion {
         result = TypeDescription.createString();
         break;
       case UUID:
-        result = TypeDescription.createBinary();
-        break;
       case FIXED:
-        result = TypeDescription.createBinary();
-        break;
       case BINARY:
         result = TypeDescription.createBinary();
         break;
@@ -122,11 +116,11 @@ public class TypeConversion {
    * @param columnIds the column ids
    * @return the Iceberg schema
    */
-  public Schema fromOrc(TypeDescription schema, ColumnIdMap columnIds) {
+  public static Schema fromOrc(TypeDescription schema, ColumnIdMap columnIds) {
     return new Schema(convertOrcToType(schema, columnIds).asStructType().fields());
   }
 
-  Type convertOrcToType(TypeDescription schema, ColumnIdMap columnIds) {
+  private static Type convertOrcToType(TypeDescription schema, ColumnIdMap columnIds) {
     switch (schema.getCategory()) {
       case BOOLEAN:
         return Types.BooleanType.get();

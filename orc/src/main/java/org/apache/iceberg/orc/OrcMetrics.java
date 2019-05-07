@@ -21,12 +21,15 @@ package org.apache.iceberg.orc;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.InputFile;
+import org.apache.orc.ColumnStatistics;
 import org.apache.orc.OrcFile;
 import org.apache.orc.Reader;
 
@@ -46,13 +49,18 @@ public class OrcMetrics {
       final Reader orcReader = OrcFile.createReader(new Path(file.location()),
           OrcFile.readerOptions(config));
 
-      // TODO: implement rest of the methods for ORC metrics
+      ColumnStatistics[] colStats = orcReader.getStatistics();
+      Map<Integer, Long> columSizes = new HashMap<>(colStats.length);
+      Map<Integer, Long> valueCounts = new HashMap<>(colStats.length);
+      for (int i = 0; i < colStats.length; i++) {
+        columSizes.put(i, colStats[i].getBytesOnDisk());
+        valueCounts.put(i, colStats[i].getNumberOfValues());
+      }
+
       return new Metrics(orcReader.getNumberOfRows(),
-          null,
-          null,
-          Collections.emptyMap(),
-          null,
-          null);
+          columSizes,
+          valueCounts,
+          Collections.emptyMap());
     } catch (IOException ioe) {
       throw new RuntimeIOException(ioe, "Failed to read footer of file: %s", file);
     }
