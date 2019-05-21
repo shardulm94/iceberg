@@ -111,16 +111,17 @@ public class TypeConversion {
   }
 
   /**
-   * Convert an ORC schema to an Iceberg schema.
+   * Convert an ORC schema to an Iceberg schema. Column IDs from ORC are preserved in Iceberg
+   * Schema to be able to cross-reference columns.
+   *
    * @param schema the ORC schema
-   * @param columnIds the column ids
    * @return the Iceberg schema
    */
-  public static Schema fromOrc(TypeDescription schema, ColumnIdMap columnIds) {
-    return new Schema(convertOrcToType(schema, columnIds).asStructType().fields());
+  public static Schema fromOrc(TypeDescription schema) {
+    return new Schema(convertOrcToType(schema).asStructType().fields());
   }
 
-  private static Type convertOrcToType(TypeDescription schema, ColumnIdMap columnIds) {
+  private static Type convertOrcToType(TypeDescription schema) {
     switch (schema.getCategory()) {
       case BOOLEAN:
         return Types.BooleanType.get();
@@ -153,21 +154,21 @@ public class TypeConversion {
         for (int c=0; c < fieldNames.size(); ++c) {
           String name = fieldNames.get(c);
           TypeDescription type = fieldTypes.get(c);
-          fields.add(Types.NestedField.optional(columnIds.get(type), name,
-              convertOrcToType(type, columnIds)));
+          fields.add(Types.NestedField.optional(type.getId(), name,
+              convertOrcToType(type)));
         }
         return Types.StructType.of(fields);
       }
       case LIST: {
         TypeDescription child = schema.getChildren().get(0);
-        return Types.ListType.ofOptional(columnIds.get(child),
-            convertOrcToType(child, columnIds));
+        return Types.ListType.ofOptional(child.getId(),
+            convertOrcToType(child));
       }
       case MAP: {
         TypeDescription key = schema.getChildren().get(0);
         TypeDescription value = schema.getChildren().get(1);
-        return Types.MapType.ofOptional(columnIds.get(key), columnIds.get(value),
-            convertOrcToType(key, columnIds), convertOrcToType(value, columnIds));
+        return Types.MapType.ofOptional(key.getId(), value.getId(),
+            convertOrcToType(key), convertOrcToType(value));
       }
       default:
         // We don't have an answer for union types.
