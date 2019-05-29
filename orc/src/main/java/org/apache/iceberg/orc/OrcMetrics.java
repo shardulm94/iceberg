@@ -19,6 +19,8 @@
 
 package org.apache.iceberg.orc;
 
+import static org.apache.iceberg.types.Conversions.toByteBuffer;
+
 import com.google.common.collect.Maps;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -31,7 +33,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.exceptions.RuntimeIOException;
-import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.types.Conversions;
@@ -65,8 +66,8 @@ public class OrcMetrics {
       List<OrcProto.ColumnStatistics> colStatsProto = orcReader.getOrcProtoFileStatistics();
       Map<Integer, Long> columSizes = Maps.newHashMapWithExpectedSize(colStats.length);
       Map<Integer, Long> valueCounts = Maps.newHashMapWithExpectedSize(colStats.length);
-      Map<Integer, Literal<?>> lowerBounds = Maps.newHashMap();
-      Map<Integer, Literal<?>> upperBounds = Maps.newHashMap();
+      Map<Integer, ByteBuffer> lowerBounds = Maps.newHashMap();
+      Map<Integer, ByteBuffer> upperBounds = Maps.newHashMap();
 
       for (int i = 0; i < colStats.length; i++) {
         columSizes.put(i, colStats[i].getBytesOnDisk());
@@ -75,11 +76,11 @@ public class OrcMetrics {
         final OrcProto.ColumnStatistics protoStats = colStatsProto.get(i);
         final Types.NestedField col = schema.findField(i);
         if (col != null) {
-          Optional<Literal<?>> orcMin = fromOrcMin(col, protoStats);
+          Optional<ByteBuffer> orcMin = fromOrcMin(col, protoStats);
           if (orcMin.isPresent()) {
             lowerBounds.put(i, orcMin.get());
           }
-          Optional<Literal<?>> orcMax = fromOrcMax(col, protoStats);
+          Optional<ByteBuffer> orcMax = fromOrcMax(col, protoStats);
           if (orcMax.isPresent()) {
             upperBounds.put(i, orcMax.get());
           }
@@ -90,55 +91,55 @@ public class OrcMetrics {
           columSizes,
           valueCounts,
           Collections.emptyMap(),
-          toBufferMap(schema, lowerBounds),
-          toBufferMap(schema, upperBounds));
+          lowerBounds,
+          upperBounds);
     } catch (IOException ioe) {
       throw new RuntimeIOException(ioe, "Failed to read footer of file: %s", file);
     }
   }
 
-  private static Optional<Literal<?>> fromOrcMin(Types.NestedField column,
+  private static Optional<ByteBuffer> fromOrcMin(Types.NestedField column,
                                                     OrcProto.ColumnStatistics columnStats) {
-    Literal<?> min = null;
+    ByteBuffer min = null;
     if (columnStats.hasIntStatistics()) {
       if (column.type().typeId() == Type.TypeID.INTEGER) {
-        min = Literal.of((int) columnStats.getIntStatistics().getMinimum());
+        min = toByteBuffer(column.type(), (int) columnStats.getIntStatistics().getMinimum());
       } else {
-        min = Literal.of(columnStats.getIntStatistics().getMinimum());
+        min = toByteBuffer(column.type(), columnStats.getIntStatistics().getMinimum());
       }
     } else if (columnStats.hasDoubleStatistics()) {
-      min = Literal.of(columnStats.getDoubleStatistics().getMinimum());
+      min = toByteBuffer(column.type(), columnStats.getDoubleStatistics().getMinimum());
     } else if (columnStats.hasStringStatistics()) {
-      min = Literal.of(columnStats.getStringStatistics().getMinimum());
+      min = toByteBuffer(column.type(), columnStats.getStringStatistics().getMinimum());
     } else if (columnStats.hasDecimalStatistics()) {
-      min = Literal.of(columnStats.getDecimalStatistics().getMinimum());
+      min = toByteBuffer(column.type(), columnStats.getDecimalStatistics().getMinimum());
     } else if (columnStats.hasDateStatistics()) {
-      min = Literal.of(columnStats.getDateStatistics().getMinimum());
+      min = toByteBuffer(column.type(), columnStats.getDateStatistics().getMinimum());
     } else if (columnStats.hasTimestampStatistics()) {
-      min = Literal.of(columnStats.getTimestampStatistics().getMinimum());
+      min = toByteBuffer(column.type(), columnStats.getTimestampStatistics().getMinimum());
     }
     return Optional.ofNullable(min);
   }
 
-  private static Optional<Literal<?>> fromOrcMax(Types.NestedField column,
+  private static Optional<ByteBuffer> fromOrcMax(Types.NestedField column,
                                                     OrcProto.ColumnStatistics columnStats) {
-    Literal<?> max = null;
+    ByteBuffer max = null;
     if (columnStats.hasIntStatistics()) {
       if (column.type().typeId() == Type.TypeID.INTEGER) {
-        max = Literal.of((int) columnStats.getIntStatistics().getMaximum());
+        max = toByteBuffer(column.type(), (int) columnStats.getIntStatistics().getMaximum());
       } else {
-        max = Literal.of(columnStats.getIntStatistics().getMaximum());
+        max = toByteBuffer(column.type(), columnStats.getIntStatistics().getMaximum());
       }
     } else if (columnStats.hasDoubleStatistics()) {
-      max = Literal.of(columnStats.getDoubleStatistics().getMaximum());
+      max = toByteBuffer(column.type(), columnStats.getDoubleStatistics().getMaximum());
     } else if (columnStats.hasStringStatistics()) {
-      max = Literal.of(columnStats.getStringStatistics().getMaximum());
+      max = toByteBuffer(column.type(), columnStats.getStringStatistics().getMaximum());
     } else if (columnStats.hasDecimalStatistics()) {
-      max = Literal.of(columnStats.getDecimalStatistics().getMaximum());
+      max = toByteBuffer(column.type(), columnStats.getDecimalStatistics().getMaximum());
     } else if (columnStats.hasDateStatistics()) {
-      max = Literal.of(columnStats.getDateStatistics().getMaximum());
+      max = toByteBuffer(column.type(), columnStats.getDateStatistics().getMaximum());
     } else if (columnStats.hasTimestampStatistics()) {
-      max = Literal.of(columnStats.getTimestampStatistics().getMaximum());
+      max = toByteBuffer(column.type(), columnStats.getTimestampStatistics().getMaximum());
     }
     return Optional.ofNullable(max);
   }
@@ -150,14 +151,5 @@ public class OrcMetrics {
           Conversions.fromByteBuffer(schema.findType(entry.getKey()), entry.getValue()));
     }
     return values;
-  }
-
-  static Map<Integer, ByteBuffer> toBufferMap(Schema schema, Map<Integer, Literal<?>> map) {
-    Map<Integer, ByteBuffer> bufferMap = Maps.newHashMap();
-    for (Map.Entry<Integer, Literal<?>> entry : map.entrySet()) {
-      bufferMap.put(entry.getKey(),
-          Conversions.toByteBuffer(schema.findType(entry.getKey()), entry.getValue().value()));
-    }
-    return bufferMap;
   }
 }
