@@ -34,7 +34,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.InputFile;
-import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.orc.ColumnStatistics;
@@ -148,12 +147,4 @@ public class OrcMetrics {
     return Optional.ofNullable(max);
   }
 
-  static Map<Integer, ?> fromBufferMap(Schema schema, Map<Integer, ByteBuffer> map) {
-    Map<Integer, ?> values = Maps.newHashMap();
-    for (Map.Entry<Integer, ByteBuffer> entry : map.entrySet()) {
-      values.put(entry.getKey(),
-          Conversions.fromByteBuffer(schema.findType(entry.getKey()), entry.getValue()));
-    }
-    return values;
-  }
 }
