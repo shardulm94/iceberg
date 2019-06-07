@@ -45,7 +45,6 @@ import org.apache.orc.OrcFile;
 import org.apache.orc.Reader;
 import org.apache.orc.StringColumnStatistics;
 import org.apache.orc.TimestampColumnStatistics;
-import org.apache.orc.TypeDescription;
 
 public class OrcMetrics {
 
@@ -62,8 +61,7 @@ public class OrcMetrics {
     try {
       final Reader orcReader = OrcFile.createReader(new Path(file.location()),
           OrcFile.readerOptions(config));
-      final TypeDescription orcSchema = orcReader.getSchema();
-      final Schema schema = TypeConversion.fromOrc(orcSchema);
+      final Schema schema = TypeConversion.fromOrc(orcReader.getSchema());
 
       ColumnStatistics[] colStats = orcReader.getStatistics();
       Map<Integer, Long> columSizes = Maps.newHashMapWithExpectedSize(colStats.length);
@@ -71,21 +69,15 @@ public class OrcMetrics {
       Map<Integer, ByteBuffer> lowerBounds = Maps.newHashMap();
       Map<Integer, ByteBuffer> upperBounds = Maps.newHashMap();
 
-      for (int i = 0; i < colStats.length; i++) {
+      for(Types.NestedField col : schema.columns()) {
+        final int i = col.fieldId();
         columSizes.put(i, colStats[i].getBytesOnDisk());
         valueCounts.put(i, colStats[i].getNumberOfValues());
 
-        final Types.NestedField col = schema.findField(i);
-        if (col != null) {
-          Optional<ByteBuffer> orcMin = fromOrcMin(col, colStats[i]);
-          if (orcMin.isPresent()) {
-            lowerBounds.put(i, orcMin.get());
-          }
-          Optional<ByteBuffer> orcMax = fromOrcMax(col, colStats[i]);
-          if (orcMax.isPresent()) {
-            upperBounds.put(i, orcMax.get());
-          }
-        }
+        Optional<ByteBuffer> orcMin = fromOrcMin(col, colStats[i]);
+        orcMin.ifPresent(byteBuffer -> lowerBounds.put(i, byteBuffer));
+        Optional<ByteBuffer> orcMax = fromOrcMax(col, colStats[i]);
+        orcMax.ifPresent(byteBuffer -> upperBounds.put(i, byteBuffer));
       }
 
       return new Metrics(orcReader.getNumberOfRows(),
