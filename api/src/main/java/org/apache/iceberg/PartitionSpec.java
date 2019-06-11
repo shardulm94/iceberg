@@ -394,6 +394,16 @@ public class PartitionSpec implements Serializable {
       return this;
     }
 
+    public Builder datepartition(String sourceName) {
+      String name = "datepartition";
+      checkAndAddPartitionName(name);
+      Types.NestedField sourceColumn = findSourceColumn(sourceName);
+      fields.add(new PartitionField(
+              sourceColumn.fieldId(), sourceName, Transforms.datepartition(sourceColumn.type())));
+      return this;
+
+    }
+
     public PartitionSpec build() {
       PartitionSpec spec = new PartitionSpec(schema, specId, fields);
       checkCompatibility(spec, schema);

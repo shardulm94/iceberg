@@ -172,4 +172,14 @@ public class Transforms {
   public static <T> Transform<T, T> truncate(Type type, int width) {
     return Truncate.get(type, width);
   }
+
+  public static Transform<?,?> datepartition(Type type) {
+    switch (type.typeId()) {
+      case DATE:
+      case INTEGER:
+        return new DatePartition();
+      default:
+        throw new RuntimeException("Not supported for datepartition " + type);
+    }
+  }
 }
