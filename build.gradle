@@ -113,8 +113,7 @@ subprojects {
 
 // We enable baseline-idea everywhere so that everyone can use IntelliJ to build code against the
 // Baseline style guide.
-def baselineProjects = [ project("iceberg-api"), project("iceberg-common"), project("iceberg-core"),
-                         project("iceberg-data") ]
+def baselineProjects = []
 
 configure(subprojects - baselineProjects) {
   // error-prone is brought in with baseline-idea, but we're not prepared to handle error-prone
@@ -237,6 +236,7 @@ project(':iceberg-orc') {
 
     compile("org.apache.orc:orc-core:$orcVersion:nohive") {
       exclude group: 'org.apache.hadoop', module: 'hadoop-common'
+      exclude group: 'org.apache.hadoop', module: 'hadoop-hdfs'
     }
 
 
@@ -281,6 +281,7 @@ project(':iceberg-spark') {
     testCompile("org.apache.hadoop:hadoop-minicluster:$hadoopVersion") {
       exclude group: 'org.apache.avro', module: 'avro'
     }
+
   }
 }
 
@@ -352,7 +353,7 @@ project(':iceberg-runtime') {
     // Relocate dependencies to avoid conflicts
     // relocate 'com.google.common', 'com.netflix.bdp.shaded.com.google.common'
     relocate 'com.fasterxml', 'org.apache.iceberg.shaded.com.fasterxml'
-    relocate 'org.apache.avro', 'org.apache.iceberg.shaded.org.apache.avro'
+    //relocate 'org.apache.avro', 'org.apache.iceberg.shaded.org.apache.avro'
     relocate 'org.apache.parquet.avro', 'org.apache.iceberg.shaded.org.apache.parquet.avro'
 
     archiveName = "iceberg-runtime-${version}.${extension}"

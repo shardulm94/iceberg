@@ -399,7 +399,7 @@ public class PartitionSpec implements Serializable {
       checkAndAddPartitionName(name);
       Types.NestedField sourceColumn = findSourceColumn(sourceName);
       fields.add(new PartitionField(
-              sourceColumn.fieldId(), sourceName, Transforms.datepartition(sourceColumn.type())));
+              sourceColumn.fieldId(), sourceName.replace(".", "_"), Transforms.datepartition(sourceColumn.type())));
       return this;
 
     }

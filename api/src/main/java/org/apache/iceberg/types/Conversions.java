@@ -78,6 +78,9 @@ public class Conversions {
       ThreadLocal.withInitial(StandardCharsets.UTF_8::newDecoder);
 
   public static ByteBuffer toByteBuffer(Type type, Object value) {
+    if (value == null) {
+      return null;
+    }
     switch (type.typeId()) {
       case BOOLEAN:
         return ByteBuffer.allocate(1).put(0, (Boolean) value ? (byte) 0x01 : (byte) 0x00);

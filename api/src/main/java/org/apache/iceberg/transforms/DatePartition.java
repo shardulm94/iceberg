@@ -10,7 +10,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
 
-public class DatePartition implements Transform<Integer, String> {
+public class DatePartition implements Transform<Long, String> {
     private final DateFormat format;
     public DatePartition() {
         format = new SimpleDateFormat("yyyy-MM-dd-00");
@@ -18,27 +18,34 @@ public class DatePartition implements Transform<Integer, String> {
     }
 
     @Override
-    public String apply(Integer value) {
+    public String apply(Long value) {
         return format.format(new Date(value));
     }
 
     @Override
     public boolean canTransform(Type type) {
-        return type.typeId() == Type.TypeID.INTEGER || type.typeId() == Type.TypeID.DATE;
+        return type.typeId() == Type.TypeID.INTEGER ||
+                type.typeId() == Type.TypeID.DATE ||
+                type.typeId() == Type.TypeID.LONG;
     }
 
     @Override
     public Type getResultType(Type sourceType) {
-        return Types.IntegerType.get();
+        return Types.StringType.get();
     }
 
     @Override
-    public UnboundPredicate<String> project(String fieldName, BoundPredicate<Integer> predicate) {
-        return ProjectionUtil.truncateInteger(fieldName, predicate, this);
+    public UnboundPredicate<String> project(String fieldName, BoundPredicate<Long> predicate) {
+        return ProjectionUtil.truncateLong(fieldName, predicate, this);
     }
 
     @Override
-    public UnboundPredicate<String> projectStrict(String name, BoundPredicate<Integer> predicate) {
+    public UnboundPredicate<String> projectStrict(String name, BoundPredicate<Long> predicate) {
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return "datepartition";
     }
 }

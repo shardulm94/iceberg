@@ -61,6 +61,10 @@ public class Transforms {
       return Dates.valueOf(transform.toUpperCase(Locale.ENGLISH));
     }
 
+    if (transform.equalsIgnoreCase("datepartition")) {
+      return new DatePartition();
+    }
+
     throw new IllegalArgumentException("Unknown transform: " + transform);
   }
 
@@ -177,6 +181,7 @@ public class Transforms {
     switch (type.typeId()) {
       case DATE:
       case INTEGER:
+      case LONG:
         return new DatePartition();
       default:
         throw new RuntimeException("Not supported for datepartition " + type);
