@@ -24,7 +24,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.orc.TypeDescription;
 import org.junit.Test;
 
-import static org.apache.iceberg.types.Types.NestedField.optional;
+import static org.apache.iceberg.types.Types.NestedField.*;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -64,7 +64,7 @@ public class TestBuildOrcProjection {
         optional(3, "c", Types.DateType.get())  // will produce ORC column c_r3 (new)
     );
 
-    TypeDescription newOrcSchema = ORCSchemaUtil.buildOrcProjection(evolveSchema, orcSchema);
+    TypeDescription newOrcSchema = ORCSchemaUtil.buildOrcProjection2(evolveSchema, orcSchema);
     assertEquals(2, newOrcSchema.getChildren().size());
     assertEquals(1, newOrcSchema.findSubtype("b").getId());
     assertEquals(TypeDescription.Category.STRING, newOrcSchema.findSubtype("b").getCategory());
@@ -85,7 +85,7 @@ public class TestBuildOrcProjection {
     // Original mapping (stored in ORC)
     TypeDescription orcSchema = ORCSchemaUtil.convert(originalSchema);
 
-    TypeDescription newOrcSchema = ORCSchemaUtil.buildOrcProjection(originalSchema, orcSchema);
+    TypeDescription newOrcSchema = ORCSchemaUtil.buildOrcProjection2(originalSchema, orcSchema);
     assertEquals(1, newOrcSchema.getChildren().size());
     assertEquals(TypeDescription.Category.STRUCT, newOrcSchema.findSubtype("a").getCategory());
     TypeDescription nestedCol = newOrcSchema.findSubtype("a");
@@ -117,7 +117,7 @@ public class TestBuildOrcProjection {
         optional(1, "aa", newNestedStructType)
     );
 
-    TypeDescription newOrcSchema = ORCSchemaUtil.buildOrcProjection(evolveSchema, orcSchema);
+    TypeDescription newOrcSchema = ORCSchemaUtil.buildOrcProjection2(evolveSchema, orcSchema);
     assertEquals(1, newOrcSchema.getChildren().size());
     assertEquals(TypeDescription.Category.STRUCT, newOrcSchema.findSubtype("a").getCategory());
     TypeDescription nestedCol = newOrcSchema.findSubtype("a");
@@ -127,4 +127,19 @@ public class TestBuildOrcProjection {
     assertEquals(TypeDescription.Category.STRING, nestedCol.findSubtype("b").getCategory());
   }
 
+  @Test
+  public void testEvolutionNestedField() {
+    Schema baseSchema = new Schema(
+        required(1, "int", Types.IntegerType.get())
+    );
+
+    Schema evolvedSchema = new Schema(
+        required(1, "int", Types.IntegerType.get()),
+        optional(2, "struct", Types.StructType.of(
+            required(3, "long", Types.LongType.get())
+        ))
+    );
+
+    ORCSchemaUtil.buildOrcProjection2(evolvedSchema, ORCSchemaUtil.convert(baseSchema));
+  }
 }

@@ -30,11 +30,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.orc.TypeDescription;
+import org.slf4j.MDC;
+
 
 /**
  * Utilities for mapping Iceberg to ORC schemas.
@@ -67,8 +70,8 @@ public final class ORCSchemaUtil {
     }
   }
 
-  private static final String ICEBERG_ID_ATTRIBUTE = "iceberg.id";
-  private static final String ICEBERG_REQUIRED_ATTRIBUTE = "iceberg.required";
+  static final String ICEBERG_ID_ATTRIBUTE = "iceberg.id";
+  static final String ICEBERG_REQUIRED_ATTRIBUTE = "iceberg.required";
 
   /**
    * The name of the ORC {@link TypeDescription} attribute indicating the Iceberg type corresponding to an
@@ -110,7 +113,7 @@ public final class ORCSchemaUtil {
     return root;
   }
 
-  private static TypeDescription convert(Integer fieldId, Type type, boolean isRequired) {
+  public static TypeDescription convert(Integer fieldId, Type type, boolean isRequired) {
     final TypeDescription orcType;
 
     switch (type.typeId()) {
@@ -254,6 +257,11 @@ public final class ORCSchemaUtil {
     return buildOrcProjection(Integer.MIN_VALUE, schema.asStruct(), true, icebergToOrc);
   }
 
+  public static TypeDescription buildOrcProjection2(Schema schema,
+      TypeDescription originalOrcSchema) {
+    return OrcSchemaWithTypeVisitor.visit(schema, originalOrcSchema, new BuildOrcProjection3());
+  }
+
   private static TypeDescription buildOrcProjection(Integer fieldId, Type type, boolean isRequired,
                                                     Map<Integer, OrcField> mapping) {
     final TypeDescription orcType;
@@ -366,7 +374,7 @@ public final class ORCSchemaUtil {
     return Optional.ofNullable(promotedOrcType);
   }
 
-  private static boolean isSameType(TypeDescription orcType, Type icebergType) {
+  public static boolean isSameType(TypeDescription orcType, Type icebergType) {
     if (icebergType.typeId() == Type.TypeID.TIMESTAMP) {
       Types.TimestampType tsType = (Types.TimestampType) icebergType;
       return Objects.equals(
@@ -397,7 +405,7 @@ public final class ORCSchemaUtil {
         Types.NestedField.optional(icebergID, name, type);
   }
 
-  private static Types.NestedField convertOrcToIceberg(TypeDescription orcType, String name,
+  public static Types.NestedField convertOrcToIceberg(TypeDescription orcType, String name,
                                                        TypeUtil.NextID nextID) {
 
     final int icebergID = icebergID(orcType).orElseGet(nextID::get);
@@ -505,5 +513,61 @@ public final class ORCSchemaUtil {
     }
 
     return maxId;
+  }
+
+  public static class OrcTypeDescriptionVisitor<T> {
+
+    public T struct(TypeDescription struct, List<T> fieldResults) {
+      return null;
+    }
+
+    public T union(TypeDescription struct, List<T> optionResults) {
+      return null;
+    }
+
+    public T list(TypeDescription list, T elementResult) {
+      return null;
+    }
+
+    public T map(TypeDescription map, T keyResult, T valueResult) {
+      return null;
+    }
+
+    public T primitive(TypeDescription primitive) {
+      return null;
+    }
+  }
+
+  public static <T> T visit(TypeDescription type, OrcTypeDescriptionVisitor<T> visitor) {
+    switch (type.getCategory()) {
+      case STRUCT:
+        List<T> fieldResults = type.getChildren().stream().map(c -> visit(c, visitor)).collect(Collectors.toList());
+        return visitor.struct(type, fieldResults);
+
+      case UNION:
+        List<T> optionResults = type.getChildren().stream().map(c -> visit(c, visitor)).collect(Collectors.toList());
+        return visitor.union(type, optionResults);
+
+      case LIST:
+        return visitor.list(type, visit(type.getChildren().get(0), visitor));
+
+      case MAP:
+        return visitor.map(type, visit(type.getChildren().get(0), visitor), visit(type.getChildren().get(1), visitor));
+
+      default:
+        return visitor.primitive(type);
+    }
+  }
+
+  public static int getIcebergId(TypeDescription type) {
+    String id = type.getAttributeValue(ICEBERG_ID_ATTRIBUTE);
+    Preconditions.checkNotNull(id, "Missing expected '%s' attribute", ICEBERG_ID_ATTRIBUTE);
+    return Integer.parseInt(id);
+  }
+
+  static int fieldId(TypeDescription orcType) {
+    String idStr = orcType.getAttributeValue(ICEBERG_ID_ATTRIBUTE);
+    Preconditions.checkNotNull(idStr, "Missing expected '%s' property", ICEBERG_ID_ATTRIBUTE);
+    return Integer.parseInt(idStr);
   }
 }
