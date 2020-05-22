@@ -30,7 +30,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.mapping.MappedField;
+import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -67,7 +70,7 @@ public final class ORCSchemaUtil {
     }
   }
 
-  private static final String ICEBERG_ID_ATTRIBUTE = "iceberg.id";
+  static final String ICEBERG_ID_ATTRIBUTE = "iceberg.id";
   private static final String ICEBERG_REQUIRED_ATTRIBUTE = "iceberg.required";
 
   /**
@@ -505,5 +508,141 @@ public final class ORCSchemaUtil {
     }
 
     return maxId;
+  }
+
+  public static class OrcTypeDescriptionVisitor<T> {
+
+    public void beforeField(String fieldName, TypeDescription field) {
+    }
+
+    public void afterField(String fieldName, TypeDescription field) {
+    }
+
+    public void beforeListElement(TypeDescription elementField) {
+      beforeField("element", elementField);
+    }
+
+    public void afterListElement(TypeDescription elementField) {
+      afterField("element", elementField);
+    }
+
+    public void beforeMapKey(TypeDescription keyField) {
+      beforeField("key", keyField);
+    }
+
+    public void afterMapKey(TypeDescription keyField) {
+      afterField("key", keyField);
+    }
+
+    public void beforeMapValue(TypeDescription valueField) {
+      beforeField("value", valueField);
+    }
+
+    public void afterMapValue(TypeDescription valueField) {
+      afterField("value", valueField);
+    }
+
+    public T struct(TypeDescription struct, List<T> fieldResults) {
+      return null;
+    }
+
+    public T list(TypeDescription list, T elementResult) {
+      return null;
+    }
+
+    public T map(TypeDescription map, T keyResult, T valueResult) {
+      return null;
+    }
+
+    public T primitive(TypeDescription primitive) {
+      return null;
+    }
+  }
+
+  public static <T> T visit(TypeDescription type, OrcTypeDescriptionVisitor<T> visitor) {
+    switch (type.getCategory()) {
+      case STRUCT:
+        List<String> fieldNames = type.getFieldNames();
+        List<TypeDescription> fieldTypes = type.getChildren();
+        List<T> fieldResults = Lists.newArrayListWithExpectedSize(fieldNames.size());
+        for (int i = 0; i < fieldNames.size(); i++) {
+          visitor.beforeField(fieldNames.get(i), fieldTypes.get(i));
+          T result;
+          try {
+            result = visit(fieldTypes.get(i), visitor);
+          } finally {
+            visitor.afterField(fieldNames.get(i), fieldTypes.get(i));
+          }
+          fieldResults.add(result);
+        }
+        return visitor.struct(type, fieldResults);
+
+      case UNION:
+        throw new UnsupportedOperationException("Union types not supported");
+
+      case LIST:
+        T elementResult;
+
+        TypeDescription elementType = type.getChildren().get(0);
+        visitor.beforeListElement(elementType);
+        try {
+          elementResult = visit(elementType, visitor);
+        } finally {
+          visitor.afterListElement(elementType);
+        }
+
+        return visitor.list(type, elementResult);
+
+      case MAP:
+        T keyResult;
+        T valueResult;
+
+        TypeDescription keyType = type.getChildren().get(0);
+        visitor.beforeMapKey(keyType);
+        try {
+          keyResult = visit(keyType, visitor);
+        } finally {
+          visitor.afterMapKey(keyType);
+        }
+
+        TypeDescription valueType = type.getChildren().get(1);
+        visitor.beforeMapValue(valueType);
+        try {
+          valueResult = visit(valueType, visitor);
+        } finally {
+          visitor.afterMapValue(valueType);
+        }
+
+        return visitor.map(type, keyResult, valueResult);
+
+      default:
+        return visitor.primitive(type);
+    }
+  }
+
+  public static int fieldId(TypeDescription type) {
+    Integer id = fieldId(type, null, null, null);
+    Preconditions.checkNotNull(id, "Missing expected '%s' property", ICEBERG_ID_ATTRIBUTE);
+    return id;
+  }
+
+  static Integer fieldId(TypeDescription type, NameMapping nameMapping, String fieldName, Iterable<String> parentFieldNames) {
+    String id = type.getAttributeValue(ICEBERG_ID_ATTRIBUTE);
+    if (id != null) {
+      return Integer.parseInt(id);
+    } else if (nameMapping != null) {
+      List<String> names = Lists.newArrayList(parentFieldNames);
+      names.add(fieldName);
+      MappedField mappedField = nameMapping.find(names);
+      if (mappedField != null) {
+        return mappedField.id();
+      }
+    }
+
+    return null;
+  }
+
+  public static boolean hasFieldId(TypeDescription type) {
+    return type.getAttributeValue(ICEBERG_ID_ATTRIBUTE) != null;
   }
 }

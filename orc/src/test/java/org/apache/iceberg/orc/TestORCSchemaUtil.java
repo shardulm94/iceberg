@@ -19,7 +19,9 @@
 
 package org.apache.iceberg.orc;
 
+import java.util.List;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.orc.TypeDescription;
 import org.junit.Test;
@@ -160,6 +162,35 @@ public class TestORCSchemaUtil {
     );
     TypeDescription orcSchema = ORCSchemaUtil.convert(expectedSchema);
     assertEquals(expectedSchema.asStruct(), ORCSchemaUtil.convert(orcSchema).asStruct());
+
+    TypeDescription orcSchemaWithoutIds = orcSchema;
+    clearAttributes(orcSchemaWithoutIds);
+
+    TypeDescription roundTrip = ORCSchemaUtil.visit(orcSchemaWithoutIds, new AssignIds(MappingUtil.create(expectedSchema)));
+    assertEquals(expectedSchema.asStruct(), ORCSchemaUtil.convert(roundTrip).asStruct());
+
+  }
+
+  /**
+   * Remove attributes from a given {@link TypeDescription}
+   * @param schema the {@link TypeDescription} to remove attributes from
+   * @return number of attributes removed
+   */
+  public static int clearAttributes(TypeDescription schema) {
+    int result = 0;
+    for (String attribute : schema.getAttributeNames()) {
+      if (attribute.equals(ORCSchemaUtil.ICEBERG_ID_ATTRIBUTE)) {
+        schema.removeAttribute(attribute);
+        result += 1;
+      }
+    }
+    List<TypeDescription> children = schema.getChildren();
+    if (children != null) {
+      for (TypeDescription child : children) {
+        result += clearAttributes(child);
+      }
+    }
+    return result;
   }
 
   @Test
