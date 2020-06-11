@@ -88,6 +88,7 @@ subprojects {
     all {
       exclude group: 'org.slf4j', module: 'slf4j-log4j12'
       exclude group: 'org.mortbay.jetty'
+      exclude group: 'org.pentaho', module: 'pentaho-aggdesigner-algorithm'
 
       resolutionStrategy {
         force 'com.fasterxml.jackson.module:jackson-module-scala_2.11:2.10.2'
@@ -309,6 +310,44 @@ project(':iceberg-mr') {
     compileOnly("org.apache.hadoop:hadoop-client") {
       exclude group: 'org.apache.avro', module: 'avro'
     }
+
+    compileOnly("org.apache.hive:hive-exec::core") {
+      exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+      exclude group: 'org.pentaho' // missing dependency
+      exclude group: 'org.apache.hive', module: 'hive-llap-tez'
+      exclude group: 'org.apache.logging.log4j'
+      exclude group: 'com.google.protobuf', module: 'protobuf-java'
+      exclude group: 'org.apache.calcite'
+      exclude group: 'org.apache.calcite.avatica'
+      exclude group: 'com.google.code.findbugs', module: 'jsr305'
+      exclude group: 'com.google.guava'
+    }
+
+    compileOnly "org.apache.hive:hive-metastore"
+    compileOnly "org.apache.hive:hive-serde"
+
+    testCompile("com.klarna:hiverunner:5.2.1") {
+      exclude group: 'javax.jms', module: 'jms'
+      exclude group: 'org.apache.hive', module: 'hive-exec'
+      exclude group: 'org.codehaus.jettison', module: 'jettison'
+      exclude group: 'org.apache.calcite.avatica'
+    }
+
+    testCompile("org.apache.hive:hive-exec::core") {
+      exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+      exclude group: 'org.pentaho' // missing dependency
+      exclude group: 'org.apache.hive', module: 'hive-llap-tez'
+      exclude group: 'org.apache.logging.log4j'
+      exclude group: 'com.google.protobuf', module: 'protobuf-java'
+      exclude group: 'org.apache.calcite.avatica'
+      exclude group: 'com.google.code.findbugs', module: 'jsr305'
+    }
+
+    testCompile("org.apache.calcite:calcite-core")
+    testCompile("com.esotericsoftware.kryo:kryo:2.24.0")
+    testCompile("com.fasterxml.jackson.core:jackson-annotations:2.6.5")
 
     testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
     testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')

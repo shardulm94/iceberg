@@ -20,7 +20,6 @@
 package org.apache.iceberg.mr.mapreduce;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -35,31 +34,21 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl;
 import org.apache.iceberg.AppendFiles;
-import org.apache.iceberg.AssertHelpers;
 import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.Files;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TestHelpers.Row;
-import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.RandomGenericData;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.data.avro.DataWriter;
-import org.apache.iceberg.data.orc.GenericOrcWriter;
-import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.hadoop.HadoopTables;
-import org.apache.iceberg.io.FileAppender;
-import org.apache.iceberg.orc.ORC;
-import org.apache.iceberg.parquet.Parquet;
+import org.apache.iceberg.mr.InputFormatConfig;
 import org.apache.iceberg.relocated.com.google.common.collect.FluentIterable;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
@@ -68,31 +57,32 @@ import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+import static org.apache.iceberg.mr.TestHelpers.writeFile;
 import static org.apache.iceberg.types.Types.NestedField.required;
 
 @RunWith(Parameterized.class)
 public class TestIcebergInputFormat {
-  static final Schema SCHEMA = new Schema(
-      required(1, "data", Types.StringType.get()),
-      required(2, "id", Types.LongType.get()),
-      required(3, "date", Types.StringType.get()));
+  private static final Schema SCHEMA = new Schema(
+          required(1, "data", Types.StringType.get()),
+          required(2, "id", Types.LongType.get()),
+          required(3, "date", Types.StringType.get()));
 
-  static final PartitionSpec SPEC = PartitionSpec.builderFor(SCHEMA)
-      .identity("date")
-      .bucket("id", 1)
-      .build();
+  private static final PartitionSpec SPEC = PartitionSpec.builderFor(SCHEMA)
+          .identity("date")
+          .bucket("id", 1)
+          .build();
 
   @Rule
   public TemporaryFolder temp = new TemporaryFolder();
-  private HadoopTables tables;
-  private Configuration conf;
+
+  private Configuration conf = new Configuration();
+  private HadoopTables tables = new HadoopTables(conf);
 
   @Parameterized.Parameters
   public static Object[][] parameters() {
@@ -109,27 +99,21 @@ public class TestIcebergInputFormat {
     this.format = FileFormat.valueOf(format.toUpperCase(Locale.ENGLISH));
   }
 
-  @Before
-  public void before() {
-    conf = new Configuration();
-    tables = new HadoopTables(conf);
-  }
-
   @Test
   public void testUnpartitionedTable() throws Exception {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(SCHEMA, PartitionSpec.unpartitioned(),
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 1, 0L);
-    DataFile dataFile = writeFile(table, null, format, expectedRecords);
+    DataFile dataFile = writeFile(temp.newFile(), table, null, format, expectedRecords);
     table.newAppend()
-         .appendFile(dataFile)
-         .commit();
+            .appendFile(dataFile)
+            .commit();
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
-    configBuilder.readFrom(location.toString());
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    configBuilder.readFrom(location.toString()).schema(table.schema());
     validate(job, expectedRecords);
   }
 
@@ -138,18 +122,18 @@ public class TestIcebergInputFormat {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(SCHEMA, SPEC,
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 1, 0L);
     expectedRecords.get(0).set(2, "2020-03-20");
-    DataFile dataFile = writeFile(table, Row.of("2020-03-20", 0), format, expectedRecords);
+    DataFile dataFile = writeFile(temp.newFile(), table, Row.of("2020-03-20", 0), format, expectedRecords);
     table.newAppend()
-         .appendFile(dataFile)
-         .commit();
+            .appendFile(dataFile)
+            .commit();
 
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
-    configBuilder.readFrom(location.toString());
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    configBuilder.readFrom(location.toString()).schema(table.schema());
     validate(job, expectedRecords);
   }
 
@@ -158,22 +142,23 @@ public class TestIcebergInputFormat {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(SCHEMA, SPEC,
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 2, 0L);
     expectedRecords.get(0).set(2, "2020-03-20");
     expectedRecords.get(1).set(2, "2020-03-20");
-    DataFile dataFile1 = writeFile(table, Row.of("2020-03-20", 0), format, expectedRecords);
-    DataFile dataFile2 = writeFile(table, Row.of("2020-03-21", 0), format,
-                                   RandomGenericData.generate(table.schema(), 2, 0L));
+    DataFile dataFile1 = writeFile(temp.newFile(), table, Row.of("2020-03-20", 0), format, expectedRecords);
+    DataFile dataFile2 = writeFile(temp.newFile(), table, Row.of("2020-03-21", 0), format,
+            RandomGenericData.generate(table.schema(), 2, 0L));
     table.newAppend()
-         .appendFile(dataFile1)
-         .appendFile(dataFile2)
-         .commit();
+            .appendFile(dataFile1)
+            .appendFile(dataFile2)
+            .commit();
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
     configBuilder.readFrom(location.toString())
-                 .filter(Expressions.equal("date", "2020-03-20"));
+            .schema(table.schema())
+            .filter(Expressions.equal("date", "2020-03-20"));
     validate(job, expectedRecords);
   }
 
@@ -182,8 +167,8 @@ public class TestIcebergInputFormat {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(SCHEMA, SPEC,
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> writeRecords = RandomGenericData.generate(table.schema(), 2, 0L);
     writeRecords.get(0).set(1, 123L);
     writeRecords.get(0).set(2, "2020-03-20");
@@ -193,68 +178,31 @@ public class TestIcebergInputFormat {
     List<Record> expectedRecords = new ArrayList<>();
     expectedRecords.add(writeRecords.get(0));
 
-    DataFile dataFile1 = writeFile(table, Row.of("2020-03-20", 0), format, writeRecords);
-    DataFile dataFile2 = writeFile(table, Row.of("2020-03-21", 0), format,
-        RandomGenericData.generate(table.schema(), 2, 0L));
+    DataFile dataFile1 = writeFile(temp.newFile(), table, Row.of("2020-03-20", 0), format, writeRecords);
+    DataFile dataFile2 = writeFile(temp.newFile(), table, Row.of("2020-03-21", 0), format,
+            RandomGenericData.generate(table.schema(), 2, 0L));
     table.newAppend()
-         .appendFile(dataFile1)
-         .appendFile(dataFile2)
-         .commit();
+            .appendFile(dataFile1)
+            .appendFile(dataFile2)
+            .commit();
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
     configBuilder.readFrom(location.toString())
-        .filter(Expressions.and(
-            Expressions.equal("date", "2020-03-20"),
-            Expressions.equal("id", 123)));
+            .schema(table.schema())
+            .filter(Expressions.and(
+                    Expressions.equal("date", "2020-03-20"),
+                    Expressions.equal("id", 123)));
     validate(job, expectedRecords);
 
     // skip residual filtering
     job = Job.getInstance(conf);
     configBuilder = IcebergInputFormat.configure(job);
     configBuilder.skipResidualFiltering().readFrom(location.toString())
-        .filter(Expressions.and(
-            Expressions.equal("date", "2020-03-20"),
-            Expressions.equal("id", 123)));
+            .schema(table.schema())
+            .filter(Expressions.and(
+                    Expressions.equal("date", "2020-03-20"),
+                    Expressions.equal("id", 123)));
     validate(job, writeRecords);
-  }
-
-  @Test
-  public void testFailedResidualFiltering() throws Exception {
-    File location = temp.newFolder(format.name());
-    Assert.assertTrue(location.delete());
-    Table table = tables.create(SCHEMA, SPEC,
-        ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-        location.toString());
-    List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 2, 0L);
-    expectedRecords.get(0).set(2, "2020-03-20");
-    expectedRecords.get(1).set(2, "2020-03-20");
-
-    DataFile dataFile1 = writeFile(table, Row.of("2020-03-20", 0), format, expectedRecords);
-    table.newAppend()
-        .appendFile(dataFile1)
-        .commit();
-
-    Job jobShouldFail1 = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(jobShouldFail1);
-    configBuilder.useHiveRows().readFrom(location.toString())
-        .filter(Expressions.and(
-            Expressions.equal("date", "2020-03-20"),
-            Expressions.equal("id", 0)));
-    AssertHelpers.assertThrows(
-        "Residuals are not evaluated today for Iceberg Generics In memory model of HIVE",
-        UnsupportedOperationException.class, "Filter expression ref(name=\"id\") == 0 is not completely satisfied.",
-        () -> validate(jobShouldFail1, expectedRecords));
-
-    Job jobShouldFail2 = Job.getInstance(conf);
-    configBuilder = IcebergInputFormat.configure(jobShouldFail2);
-    configBuilder.usePigTuples().readFrom(location.toString())
-        .filter(Expressions.and(
-            Expressions.equal("date", "2020-03-20"),
-            Expressions.equal("id", 0)));
-    AssertHelpers.assertThrows(
-        "Residuals are not evaluated today for Iceberg Generics In memory model of PIG",
-        UnsupportedOperationException.class, "Filter expression ref(name=\"id\") == 0 is not completely satisfied.",
-        () -> validate(jobShouldFail2, expectedRecords));
   }
 
   @Test
@@ -263,41 +211,42 @@ public class TestIcebergInputFormat {
     Assert.assertTrue(location.delete());
     Schema projectedSchema = TypeUtil.select(SCHEMA, ImmutableSet.of(1));
     Table table = tables.create(SCHEMA, SPEC,
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> inputRecords = RandomGenericData.generate(table.schema(), 1, 0L);
-    DataFile dataFile = writeFile(table, Row.of("2020-03-20", 0), format, inputRecords);
+    DataFile dataFile = writeFile(temp.newFile(), table, Row.of("2020-03-20", 0), format, inputRecords);
     table.newAppend()
-         .appendFile(dataFile)
-         .commit();
+            .appendFile(dataFile)
+            .commit();
 
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
     configBuilder
-        .readFrom(location.toString())
-        .project(projectedSchema);
+            .readFrom(location.toString())
+            .project(projectedSchema)
+            .schema(table.schema());
     List<Record> outputRecords = readRecords(job.getConfiguration());
     Assert.assertEquals(inputRecords.size(), outputRecords.size());
     Assert.assertEquals(projectedSchema.asStruct(), outputRecords.get(0).struct());
   }
 
   private static final Schema LOG_SCHEMA = new Schema(
-      Types.NestedField.optional(1, "id", Types.IntegerType.get()),
-      Types.NestedField.optional(2, "date", Types.StringType.get()),
-      Types.NestedField.optional(3, "level", Types.StringType.get()),
-      Types.NestedField.optional(4, "message", Types.StringType.get())
+          Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+          Types.NestedField.optional(2, "date", Types.StringType.get()),
+          Types.NestedField.optional(3, "level", Types.StringType.get()),
+          Types.NestedField.optional(4, "message", Types.StringType.get())
   );
 
   private static final PartitionSpec IDENTITY_PARTITION_SPEC =
-      PartitionSpec.builderFor(LOG_SCHEMA).identity("date").identity("level").build();
+          PartitionSpec.builderFor(LOG_SCHEMA).identity("date").identity("level").build();
 
   @Test
   public void testIdentityPartitionProjections() throws Exception {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(LOG_SCHEMA, IDENTITY_PARTITION_SPEC,
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
 
     List<Record> inputRecords = RandomGenericData.generate(LOG_SCHEMA, 10, 0);
     Integer idx = 0;
@@ -305,33 +254,50 @@ public class TestIcebergInputFormat {
     for (Record record : inputRecords) {
       record.set(1, "2020-03-2" + idx);
       record.set(2, idx.toString());
-      append.appendFile(writeFile(table, Row.of("2020-03-2" + idx, idx.toString()), format, ImmutableList.of(record)));
+      append.appendFile(writeFile(temp.newFile(), table, Row.of("2020-03-2" + idx, idx.toString()), format,
+              ImmutableList.of(record)));
       idx += 1;
     }
     append.commit();
 
     // individual fields
-    validateIdentityPartitionProjections(location.toString(), withColumns("date"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("level"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("message"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("id"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("date"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("level"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("message"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("id"), inputRecords);
     // field pairs
-    validateIdentityPartitionProjections(location.toString(), withColumns("date", "message"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("level", "message"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("date", "level"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("date", "message"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("level", "message"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("date", "level"), inputRecords);
     // out-of-order pairs
-    validateIdentityPartitionProjections(location.toString(), withColumns("message", "date"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("message", "level"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("level", "date"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("message", "date"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("message", "level"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("level", "date"), inputRecords);
     // full projection
-    validateIdentityPartitionProjections(location.toString(), LOG_SCHEMA, inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(), LOG_SCHEMA, inputRecords);
     // out-of-order triplets
-    validateIdentityPartitionProjections(location.toString(), withColumns("date", "level", "message"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("level", "date", "message"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("date", "message", "level"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("level", "message", "date"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("message", "date", "level"), inputRecords);
-    validateIdentityPartitionProjections(location.toString(), withColumns("message", "level", "date"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("date", "level", "message"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("level", "date", "message"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("date", "message", "level"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("level", "message", "date"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("message", "date", "level"), inputRecords);
+    validateIdentityPartitionProjections(location.toString(), table.schema(),
+            withColumns("message", "level", "date"), inputRecords);
   }
 
   private static Schema withColumns(String... names) {
@@ -344,12 +310,13 @@ public class TestIcebergInputFormat {
   }
 
   private void validateIdentityPartitionProjections(
-      String tablePath, Schema projectedSchema, List<Record> inputRecords) throws Exception {
+          String tablePath, Schema tableSchema, Schema projectedSchema, List<Record> inputRecords) throws Exception {
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
     configBuilder
-        .readFrom(tablePath)
-        .project(projectedSchema);
+            .readFrom(tablePath)
+            .schema(tableSchema)
+            .project(projectedSchema);
     List<Record> actualRecords = readRecords(job.getConfiguration());
 
     Set<String> fieldNames = TypeUtil.indexByName(projectedSchema.asStruct()).keySet();
@@ -359,7 +326,8 @@ public class TestIcebergInputFormat {
       Assert.assertEquals("Projected schema should match", projectedSchema.asStruct(), actualRecord.struct());
       for (String name : fieldNames) {
         Assert.assertEquals(
-            "Projected field " + name + " should match", inputRecord.getField(name), actualRecord.getField(name));
+                "Projected field " + name + " should match", inputRecord.getField(name),
+                actualRecord.getField(name));
       }
     }
   }
@@ -369,22 +337,24 @@ public class TestIcebergInputFormat {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(SCHEMA, PartitionSpec.unpartitioned(),
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 1, 0L);
     table.newAppend()
-         .appendFile(writeFile(table, null, format, expectedRecords))
-         .commit();
+            .appendFile(writeFile(temp.newFile(), table, null, format, expectedRecords))
+            .commit();
     long snapshotId = table.currentSnapshot().snapshotId();
     table.newAppend()
-         .appendFile(writeFile(table, null, format, RandomGenericData.generate(table.schema(), 1, 0L)))
-         .commit();
+            .appendFile(writeFile(temp.newFile(), table, null, format,
+                    RandomGenericData.generate(table.schema(), 1, 0L)))
+            .commit();
 
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
     configBuilder
-        .readFrom(location.toString())
-        .snapshotId(snapshotId);
+            .schema(table.schema())
+            .readFrom(location.toString())
+            .snapshotId(snapshotId);
 
     validate(job, expectedRecords);
   }
@@ -394,15 +364,15 @@ public class TestIcebergInputFormat {
     File location = temp.newFolder(format.name());
     Assert.assertTrue(location.delete());
     Table table = tables.create(SCHEMA, PartitionSpec.unpartitioned(),
-                                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
-                                location.toString());
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()),
+            location.toString());
     List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 1, 0L);
     table.newAppend()
-         .appendFile(writeFile(table, null, format, expectedRecords))
-         .commit();
+            .appendFile(writeFile(temp.newFile(), table, null, format, expectedRecords))
+            .commit();
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
-    configBuilder.readFrom(location.toString());
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    configBuilder.readFrom(location.toString()).schema(table.schema());
 
     for (InputSplit split : splits(job.getConfiguration())) {
       Assert.assertArrayEquals(IcebergInputFormat.IcebergSplit.ANYWHERE, split.getLocations());
@@ -429,19 +399,20 @@ public class TestIcebergInputFormat {
     Catalog catalog = new HadoopCatalogFunc().apply(conf);
     TableIdentifier tableIdentifier = TableIdentifier.of("db", "t");
     Table table = catalog.createTable(tableIdentifier, SCHEMA, SPEC,
-                                      ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()));
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, format.name()));
     List<Record> expectedRecords = RandomGenericData.generate(table.schema(), 1, 0L);
     expectedRecords.get(0).set(2, "2020-03-20");
-    DataFile dataFile = writeFile(table, Row.of("2020-03-20", 0), format, expectedRecords);
+    DataFile dataFile = writeFile(temp.newFile(), table, Row.of("2020-03-20", 0), format, expectedRecords);
     table.newAppend()
-         .appendFile(dataFile)
-         .commit();
+            .appendFile(dataFile)
+            .commit();
 
     Job job = Job.getInstance(conf);
-    IcebergInputFormat.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
+    InputFormatConfig.ConfigBuilder configBuilder = IcebergInputFormat.configure(job);
     configBuilder
-        .catalogFunc(HadoopCatalogFunc.class)
-        .readFrom(tableIdentifier.toString());
+            .catalogFunc(HadoopCatalogFunc.class)
+            .schema(table.schema())
+            .readFrom(tableIdentifier.toString());
     validate(job, expectedRecords);
   }
 
@@ -461,14 +432,14 @@ public class TestIcebergInputFormat {
     IcebergInputFormat<T> icebergInputFormat = new IcebergInputFormat<>();
     List<InputSplit> splits = icebergInputFormat.getSplits(context);
     return
-        FluentIterable
-            .from(splits)
-            .transformAndConcat(split -> readRecords(icebergInputFormat, split, context))
-            .toList();
+            FluentIterable
+                    .from(splits)
+                    .transformAndConcat(split -> readRecords(icebergInputFormat, split, context))
+                    .toList();
   }
 
   private static <T> Iterable<T> readRecords(
-      IcebergInputFormat<T> inputFormat, InputSplit split, TaskAttemptContext context) {
+          IcebergInputFormat<T> inputFormat, InputSplit split, TaskAttemptContext context) {
     RecordReader<Void, T> recordReader = inputFormat.createRecordReader(split, context);
     List<T> records = new ArrayList<>();
     try {
@@ -482,50 +453,4 @@ public class TestIcebergInputFormat {
     return records;
   }
 
-  private DataFile writeFile(
-      Table table, StructLike partitionData, FileFormat fileFormat, List<Record> records) throws IOException {
-    File file = temp.newFile();
-    Assert.assertTrue(file.delete());
-    FileAppender<Record> appender;
-    switch (fileFormat) {
-      case AVRO:
-        appender = Avro.write(Files.localOutput(file))
-            .schema(table.schema())
-            .createWriterFunc(DataWriter::create)
-            .named(fileFormat.name())
-            .build();
-        break;
-      case PARQUET:
-        appender = Parquet.write(Files.localOutput(file))
-            .schema(table.schema())
-            .createWriterFunc(GenericParquetWriter::buildWriter)
-            .named(fileFormat.name())
-            .build();
-        break;
-      case ORC:
-        appender = ORC.write(Files.localOutput(file))
-            .schema(table.schema())
-            .createWriterFunc(GenericOrcWriter::buildWriter)
-            .build();
-        break;
-      default:
-        throw new UnsupportedOperationException("Cannot write format: " + fileFormat);
-    }
-
-    try {
-      appender.addAll(records);
-    } finally {
-      appender.close();
-    }
-
-    DataFiles.Builder builder = DataFiles.builder(table.spec())
-        .withPath(file.toString())
-        .withFormat(format)
-        .withFileSizeInBytes(file.length())
-        .withMetrics(appender.metrics());
-    if (partitionData != null) {
-      builder.withPartition(partitionData);
-    }
-    return builder.build();
-  }
 }
