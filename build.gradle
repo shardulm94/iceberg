@@ -310,6 +310,7 @@ project(':iceberg-mr') {
     compileOnly("org.apache.hadoop:hadoop-client") {
       exclude group: 'org.apache.avro', module: 'avro'
     }
+    compileOnly("org.apache.hive:hive-serde")
 
     compileOnly("org.apache.hive:hive-exec::core") {
       exclude group: 'org.apache.avro', module: 'avro'
