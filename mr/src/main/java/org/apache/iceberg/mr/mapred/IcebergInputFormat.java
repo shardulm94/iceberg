@@ -28,6 +28,7 @@ import java.util.List;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
+import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.io.CombineHiveInputFormat;
 import org.apache.hadoop.hive.ql.io.sarg.ConvertAstToSearchArg;
 import org.apache.hadoop.hive.ql.io.sarg.PredicateLeaf;
@@ -85,7 +86,9 @@ public class IcebergInputFormat<T> implements InputFormat<Void, T>, CombineHiveI
     }
     virtualSnapshotIdColumnName = SystemTableUtil.getVirtualColumnName(conf);
 
-    String[] readColumns = ColumnProjectionUtils.getReadColumnNames(conf);
+    String[] readColumns = ColumnProjectionUtils.getReadColumnIDs(conf)
+        .stream()
+        .map(i -> table.schema().columns().get(i).name()).toArray(String[]::new);
     List<CombinedScanTask> tasks;
     if (conf.get(TableScanDesc.FILTER_EXPR_CONF_STR) == null) {
       tasks = Lists.newArrayList(table
@@ -94,7 +97,7 @@ public class IcebergInputFormat<T> implements InputFormat<Void, T>, CombineHiveI
               .planTasks());
     } else {
       ExprNodeGenericFuncDesc exprNodeDesc = SerializationUtilities
-              .deserializeObject(conf.get(TableScanDesc.FILTER_EXPR_CONF_STR), ExprNodeGenericFuncDesc.class);
+              .deserializeExpression(conf.get(TableScanDesc.FILTER_EXPR_CONF_STR));
       SearchArgument sarg = ConvertAstToSearchArg.create(conf, exprNodeDesc);
       Expression filter = IcebergFilterFactory.generateFilterExpression(sarg);
 

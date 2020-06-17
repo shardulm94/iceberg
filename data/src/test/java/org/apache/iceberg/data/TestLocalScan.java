@@ -34,6 +34,7 @@ import org.apache.iceberg.AssertHelpers;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -260,6 +261,7 @@ public class TestLocalScan {
 
   @Test
   public void testFullScan() {
+    Lists.newArrayList(IcebergGenerics.read(((HadoopTables) TABLES).load(sharedTableLocation + "#partitions")).build());
     Iterable<Record> results = IcebergGenerics.read(sharedTable).build();
 
     Set<Record> expected = Sets.newHashSet();

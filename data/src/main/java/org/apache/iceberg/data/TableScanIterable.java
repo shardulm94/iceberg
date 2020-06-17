@@ -27,9 +27,11 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import org.apache.avro.generic.GenericData;
 import org.apache.iceberg.CombinedScanTask;
+import org.apache.iceberg.DataTask;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.avro.Avro;
@@ -55,6 +57,7 @@ import org.apache.iceberg.util.PartitionUtil;
 
 class TableScanIterable extends CloseableGroup implements CloseableIterable<Record> {
   private final TableOperations ops;
+  private final Schema tableSchema;
   private final Schema projection;
   private final boolean reuseContainers;
   private final boolean caseSensitive;
@@ -64,6 +67,7 @@ class TableScanIterable extends CloseableGroup implements CloseableIterable<Reco
     Preconditions.checkArgument(scan.table() instanceof HasTableOperations,
         "Cannot scan table that doesn't expose its TableOperations");
     this.ops = ((HasTableOperations) scan.table()).operations();
+    this.tableSchema = scan.table().schema();
     this.projection = scan.schema();
     this.reuseContainers = reuseContainers;
     this.caseSensitive = scan.isCaseSensitive();
@@ -80,48 +84,66 @@ class TableScanIterable extends CloseableGroup implements CloseableIterable<Reco
   }
 
   private CloseableIterable<Record> open(FileScanTask task) {
-    InputFile input = ops.io().newInputFile(task.file().path().toString());
-    Map<Integer, ?> partition = PartitionUtil.constantsMap(task, TableScanIterable::convertConstant);
+    if (task.isDataTask()) {
+      Preconditions.checkArgument(tableSchema.toString().equals(projection.toString()),
+          "Projection not supported for metadata tables");
+      return newDataIterable(task.asDataTask(), tableSchema);
+    } else {
+      InputFile input = ops.io().newInputFile(task.file().path().toString());
+      Map<Integer, ?> partition = PartitionUtil.constantsMap(task, TableScanIterable::convertConstant);
 
-    switch (task.file().format()) {
-      case AVRO:
-        Avro.ReadBuilder avro = Avro.read(input)
-            .project(projection)
-            .createReaderFunc(
-                avroSchema -> DataReader.create(projection, avroSchema, partition))
-            .split(task.start(), task.length());
+      switch (task.file().format()) {
+        case AVRO:
+          Avro.ReadBuilder avro = Avro.read(input)
+              .project(projection)
+              .createReaderFunc(
+                  avroSchema -> DataReader.create(projection, avroSchema, partition))
+              .split(task.start(), task.length());
 
-        if (reuseContainers) {
-          avro.reuseContainers();
-        }
+          if (reuseContainers) {
+            avro.reuseContainers();
+          }
 
-        return avro.build();
+          return avro.build();
 
-      case PARQUET:
-        Parquet.ReadBuilder parquet = Parquet.read(input)
-            .project(projection)
-            .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(projection, fileSchema, partition))
-            .split(task.start(), task.length());
+        case PARQUET:
+          Parquet.ReadBuilder parquet = Parquet.read(input)
+              .project(projection)
+              .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(projection, fileSchema, partition))
+              .split(task.start(), task.length());
 
-        if (reuseContainers) {
-          parquet.reuseContainers();
-        }
+          if (reuseContainers) {
+            parquet.reuseContainers();
+          }
 
-        return parquet.build();
+          return parquet.build();
 
-      case ORC:
-        ORC.ReadBuilder orc = ORC.read(input)
-                .project(projection)
-                .createReaderFunc(fileSchema -> GenericOrcReader.buildReader(projection, fileSchema, partition))
-                .split(task.start(), task.length())
-                .filter(task.residual());
+        case ORC:
+          ORC.ReadBuilder orc = ORC.read(input)
+                  .project(projection)
+                  .createReaderFunc(fileSchema -> GenericOrcReader.buildReader(projection, fileSchema, partition))
+                  .split(task.start(), task.length())
+                  .filter(task.residual());
 
-        return orc.build();
+          return orc.build();
 
-      default:
-        throw new UnsupportedOperationException(String.format("Cannot read %s file: %s",
-            task.file().format().name(), task.file().path()));
+        default:
+          throw new UnsupportedOperationException(String.format("Cannot read %s file: %s",
+              task.file().format().name(), task.file().path()));
+      }
     }
+  }
+
+  private CloseableIterable<Record> newDataIterable(DataTask task, Schema tableSchema) {
+    return CloseableIterable.transform(task.asDataTask().rows(), r -> structLikeToRecord(r, readSchema));
+  }
+
+  private Record structLikeToRecord(StructLike struct, Schema schema) {
+    Record record = GenericRecord.create(schema);
+    for (int i = 0; i < schema.columns().size(); i++) {
+      record.set(i, struct.get(i, Object.class));
+    }
+    return record;
   }
 
   @Override

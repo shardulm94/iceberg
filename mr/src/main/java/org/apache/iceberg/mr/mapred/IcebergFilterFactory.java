@@ -23,6 +23,7 @@ import java.util.List;
 import org.apache.hadoop.hive.ql.io.sarg.ExpressionTree;
 import org.apache.hadoop.hive.ql.io.sarg.PredicateLeaf;
 import org.apache.hadoop.hive.ql.io.sarg.SearchArgument;
+import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 
@@ -134,6 +135,7 @@ public class IcebergFilterFactory {
     if (column.equals("snapshot__id")) {
       return Expressions.alwaysTrue();
     }
+    ((HiveDecimalWritable) (leaf.getLiteral())).doubleValue()
     switch (leaf.getOperator()) {
       case EQUALS:
         return equal(column, leaf.getLiteral());

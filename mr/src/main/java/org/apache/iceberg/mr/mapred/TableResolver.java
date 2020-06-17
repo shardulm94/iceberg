@@ -26,10 +26,18 @@ import java.util.Properties;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapred.JobConf;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.Tables;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.mr.InputFormatConfig;
 
 final class TableResolver {
@@ -77,8 +85,50 @@ final class TableResolver {
           return catalog.loadTable(id);
         }
       case InputFormatConfig.HIVE_CATALOG:
-        //TODO Implement HiveCatalog
         return null;
+      case "direct":
+        return new BaseTable(new TableOperations() {
+          private volatile boolean shouldRefresh = true;
+          private volatile TableMetadata currentMetadata = null;
+          private HadoopFileIO defaultFileIo = null;
+          @Override
+          public TableMetadata current() {
+            if (shouldRefresh) {
+              return refresh();
+            }
+            return currentMetadata;
+          }
+
+          @Override
+          public TableMetadata refresh() {
+            this.shouldRefresh = false;
+            this.currentMetadata = TableMetadataParser.read(io(), tableLocation.toString());
+            return currentMetadata;
+          }
+
+          @Override
+          public void commit(TableMetadata base, TableMetadata metadata) {
+
+          }
+
+          @Override
+          public FileIO io() {
+            if (defaultFileIo == null) {
+              defaultFileIo = new HadoopFileIO(conf);
+            }
+            return defaultFileIo;
+          }
+
+          @Override
+          public String metadataFileLocation(String fileName) {
+            return null;
+          }
+
+          @Override
+          public LocationProvider locationProvider() {
+            return null;
+          }
+        }, tableLocation.toString());
     }
     return null;
   }
