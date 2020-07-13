@@ -32,6 +32,7 @@ matrix:
       directories:
         - $HOME/.gradle/caches/
         - $HOME/.gradle/wrapper/
+    script: travis_wait 20 ./gradlew check
 
   - language: java
     jdk: openjdk8
@@ -43,6 +44,7 @@ matrix:
       directories:
         - $HOME/.gradle/caches/
         - $HOME/.gradle/wrapper/
+    script: travis_wait 20 ./gradlew check
 
   - language: python
     python: 3.6
