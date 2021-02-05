@@ -40,7 +40,7 @@ public abstract class IcebergSourceNestedDataBenchmark extends IcebergSourceBenc
   }
 
   @Override
-  protected final Table initTable() {
+  protected Table initTable() {
     Schema schema = new Schema(
         required(0, "id", Types.LongType.get()),
         optional(4, "nested", Types.StructType.of(

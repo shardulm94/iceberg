@@ -17,7 +17,7 @@
  * under the License.
  */
 
-package org.apache.iceberg.spark.source.parquet;
+package org.apache.iceberg.spark.source.orc;
 
 import java.io.IOException;
 import java.util.Map;
@@ -38,23 +38,23 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 
+import static org.apache.iceberg.TableProperties.*;
 import static org.apache.iceberg.types.Types.NestedField.*;
-import static org.apache.spark.sql.functions.expr;
-import static org.apache.spark.sql.functions.struct;
-import static org.apache.spark.sql.functions.array_repeat;
+import static org.apache.spark.sql.functions.*;
+
 
 /**
- * A benchmark that evaluates the performance of writing nested Parquet data using Iceberg
+ * A benchmark that evaluates the performance of writing nested ORC data using Iceberg
  * and the built-in file source in Spark.
  *
  * To run this benchmark:
  * <code>
  *   ./gradlew :iceberg-spark2:jmh
- *       -PjmhIncludeRegex=IcebergSourceNestedParquetDataWriteBenchmark
- *       -PjmhOutputPath=benchmark/iceberg-source-nested-parquet-data-write-benchmark-result.txt
+ *       -PjmhIncludeRegex=IcebergSourceNestedORCDataWriteBenchmark
+ *       -PjmhOutputPath=benchmark/iceberg-source-nested-orc-data-write-benchmark-result.txt
  * </code>
  */
-public class IcebergSourceNestedParquetDataWriteBenchmark extends IcebergSourceNestedDataBenchmark {
+public class IcebergSourceNestedORCDataWriteBenchmark extends IcebergSourceNestedDataBenchmark {
 
   private static final int NUM_ROWS = 500;
 
@@ -73,14 +73,29 @@ public class IcebergSourceNestedParquetDataWriteBenchmark extends IcebergSourceN
   @Threads(1)
   public void writeIceberg2000() {
     String tableLocation = table().location();
-    benchmarkData(2000).write().format("iceberg").mode(SaveMode.Append).save(tableLocation);
+    benchmarkData(2000).write().format("iceberg").option("write-format", "orc").mode(SaveMode.Append).save(tableLocation);
   }
 
   @Benchmark
   @Threads(1)
   public void writeIceberg20000() {
     String tableLocation = table().location();
-    benchmarkData(20000).write().format("iceberg").mode(SaveMode.Append).save(tableLocation);
+    benchmarkData(20000).write().format("iceberg").option("write-format", "orc").mode(SaveMode.Append).save(tableLocation);
+  }
+
+  @Benchmark
+  @Threads(1)
+  public void writeIceberg20000DictionaryOff() {
+    Map<String, String> tableProperties = Maps.newHashMap();
+    tableProperties.put("orc.dictionary.key.threshold", "0");
+    withTableProperties(tableProperties, () -> {
+      String tableLocation = table().location();
+      benchmarkData(20000).write()
+          .format("iceberg")
+          .option("write-format", "orc")
+          .mode(SaveMode.Append)
+          .save(tableLocation);
+    });
   }
 
   private Dataset<Row> benchmarkData(int rows) {
@@ -88,10 +103,10 @@ public class IcebergSourceNestedParquetDataWriteBenchmark extends IcebergSourceN
         .withColumn(
             "outerlist",
             array_repeat(
-              struct(
-                  expr("array_repeat(CAST(id AS string), 1000) AS innerlist")
-              ),
-              10
+                struct(
+                    expr("array_repeat(CAST(id AS string), 1000) AS innerlist")
+                ),
+                10
             )
         )
         .coalesce(1);
